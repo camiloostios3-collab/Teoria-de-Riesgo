@@ -48,11 +48,15 @@ with st.sidebar:
             "Análisis Técnico",
             "Rendimientos",
             "ARCH / GARCH",
+            "Volatilidad EWMA",
             "CAPM & Beta",
             "VaR & CVaR",
             "Markowitz",
             "Señales & Alertas",
             "Macro & Benchmark",
+            "Renta Fija",
+            "Derivados",
+            "Estrés & ML",
         ],
         label_visibility="collapsed",
     )
@@ -97,3 +101,15 @@ elif modulo == "Señales & Alertas":
 elif modulo == "Macro & Benchmark":
     from pages.m8_macro import show
     show()
+elif modulo == "Volatilidad EWMA":
+    from pages.m3b_ewma import run
+    run()
+elif modulo == "Renta Fija":
+    from pages.m9_fixed_income import run
+    run()
+elif modulo == "Derivados":
+    from pages.m10_options import run
+    run()
+elif modulo == "Estrés & ML":
+    from pages.m11_stress import run
+    run()
