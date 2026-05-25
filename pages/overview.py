@@ -36,15 +36,41 @@ def show():
     """, unsafe_allow_html=True)
  
     with st.spinner("Cargando datos del portafolio..."):
-        prices  = get_prices(years=3)
-        returns = get_returns(prices[TICKERS])
-        rf      = get_risk_free_rate()
- 
-    port_ret = returns.mean(axis=1)
-    cum_ret  = (1 + port_ret).cumprod().iloc[-1] - 1
+        try:
+            prices  = get_prices(years=3)
+            rf      = get_risk_free_rate()
+        except ConnectionError as exc:
+            st.error(
+                f"⚠️ No se pudieron descargar datos de mercado.\n\n"
+                f"**Error:** {exc}\n\n"
+                "Verifica tu conexión a internet e intenta recargar la página."
+            )
+            st.stop()
+
+    # Seleccionar solo los tickers del portafolio que realmente están en prices
+    available = [t for t in TICKERS if t in prices.columns]
+    if not available:
+        st.error(
+            "⚠️ Los precios descargados no contienen los tickers del portafolio. "
+            f"Columnas disponibles: `{list(prices.columns)}`"
+        )
+        st.stop()
+
+    returns = get_returns(prices[available])
+
+    if returns.empty or len(returns) < 2:
+        st.error(
+            "⚠️ No hay suficientes datos históricos para calcular rendimientos. "
+            "Intenta recargar la página."
+        )
+        st.stop()
+
+    port_ret = returns[available].mean(axis=1)
+    cum_series = (1 + port_ret).cumprod()
+    cum_ret  = cum_series.iloc[-1] - 1
     ann_vol  = port_ret.std() * np.sqrt(252)
-    sharpe   = (port_ret.mean() * 252 - rf["annual"]) / ann_vol
-    drawdown = ((1+port_ret).cumprod() / (1+port_ret).cumprod().cummax() - 1).min()
+    sharpe   = (port_ret.mean() * 252 - rf["annual"]) / ann_vol if ann_vol > 0 else 0.0
+    drawdown = (cum_series / cum_series.cummax() - 1).min()
     last_date = prices.index[-1].strftime("%d %b %Y")
  
     # ── KPIs con st.metric ──
@@ -73,9 +99,9 @@ def show():
             Rendimiento normalizado — Base 100
         </div>
         """, unsafe_allow_html=True)
-        norm = prices[TICKERS] / prices[TICKERS].iloc[0] * 100
+        norm = prices[available] / prices[available].iloc[0] * 100
         fig  = go.Figure()
-        for ticker in TICKERS:
+        for ticker in available:
             fig.add_trace(go.Scatter(
                 x=norm.index, y=norm[ticker].values, name=ticker,
                 line=dict(color=TICKER_COLORS[ticker], width=1.5),
@@ -92,7 +118,7 @@ def show():
             Correlación de rendimientos
         </div>
         """, unsafe_allow_html=True)
-        corr = returns[TICKERS].corr()
+        corr = returns[available].corr()
         fig2 = go.Figure(go.Heatmap(
             z=corr.values,
             x=corr.columns.tolist(),
@@ -123,17 +149,20 @@ def show():
     """, unsafe_allow_html=True)
  
     rows = []
-    for ticker in TICKERS:
+    for ticker in available:
         px   = prices[ticker].dropna()
-        ret  = returns[ticker].dropna()
-        ytd  = px.iloc[-1] / px[px.index.year == px.index[-1].year].iloc[0] - 1
+        ret  = returns[ticker].dropna() if ticker in returns.columns else pd.Series()
+        if px.empty or ret.empty:
+            continue
+        ytd_base = px[px.index.year == px.index[-1].year]
+        ytd  = (px.iloc[-1] / ytd_base.iloc[0] - 1) if not ytd_base.empty else float("nan")
         ann_v = ret.std() * np.sqrt(252)
         rows.append({
             "Ticker"    : ticker,
-            "Sector"    : SECTOR_MAP[ticker],
+            "Sector"    : SECTOR_MAP.get(ticker, "—"),
             "Último"    : f"${px.iloc[-1]:.2f}",
             "Δ Hoy"     : f"{ret.iloc[-1]:+.2%}",
-            "YTD"       : f"{ytd:+.1%}",
+            "YTD"       : f"{ytd:+.1%}" if not np.isnan(ytd) else "—",
             "Vol. Anual": f"{ann_v:.1%}",
         })
  
