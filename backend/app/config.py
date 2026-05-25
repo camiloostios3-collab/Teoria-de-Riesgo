@@ -52,6 +52,21 @@ class Settings(BaseSettings):
     stoch_k: int = Field(default=14, ge=5, le=50)
     stoch_d: int = Field(default=3, ge=1, le=10)
 
+    # ── CORS y seguridad ──────────────────────────────────────────────────────────
+    allowed_origins: List[str] = Field(
+        default=["*"],
+        description=(
+            "Orígenes CORS permitidos. En producción usa: "
+            '["https://tu-frontend.onrender.com"]'
+        ),
+    )
+
+    # ── Base de datos ─────────────────────────────────────────────────────────────
+    database_url: str = Field(
+        default="sqlite:///./risklab.db",
+        description="URL de conexión SQLAlchemy. Para SQLite: sqlite:///./risklab.db",
+    )
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

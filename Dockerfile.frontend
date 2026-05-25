@@ -1,0 +1,30 @@
+# Dockerfile.frontend
+# Imagen reproducible para el tablero Streamlit.
+# Construye el frontend una sola vez (no instala en runtime).
+
+FROM python:3.11.9-slim-bookworm
+
+WORKDIR /app
+
+# Instalar dependencias del frontend
+COPY frontend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar código del frontend y páginas compartidas
+COPY app.py .
+COPY pages/ ./pages/
+COPY utils/ ./utils/
+COPY data/ ./data/
+
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8501
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"
+
+CMD ["streamlit", "run", "app.py", \
+     "--server.port=8501", \
+     "--server.address=0.0.0.0", \
+     "--server.headless=true", \
+     "--browser.gatherUsageStats=false"]

@@ -10,32 +10,34 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data          # persistir SQLite
-      - ./backend/.env:/app/.env  # variables de entorno
+      - risklab_data:/app/data          # volumen nombrado — sobrevive recreaciones
+    env_file:
+      - backend/.env                    # API keys y configuración
     environment:
       - PYTHONUNBUFFERED=1
+      - DATABASE_URL=sqlite:////app/data/risklab.db   # BD en el volumen persistente
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 20s
     restart: unless-stopped
 
   frontend:
-    image: python:3.11.9-slim-bookworm
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend   # imagen propia — no instala en runtime
     container_name: risklab-frontend
-    working_dir: /app
-    volumes:
-      - .:/app
-    command: >
-      sh -c "pip install -q streamlit requests plotly pandas numpy &&
-             streamlit run app.py --server.port 8501 --server.address 0.0.0.0"
     ports:
       - "8501:8501"
     environment:
-      - BACKEND_URL=http://api:8000
+      - BACKEND_URL=http://api:8000    # resuelve por nombre de servicio Docker
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_healthy     # espera a que el backend esté sano
     restart: unless-stopped
+
+volumes:
+  risklab_data:                         # volumen nombrado — la BD no se pierde en `docker compose down`

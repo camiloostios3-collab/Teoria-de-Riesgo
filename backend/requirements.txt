@@ -11,13 +11,15 @@ python-dotenv==1.0.1
 sqlalchemy==2.0.36
 
 # ─── Datos financieros ────────────────────────────────────────────────────────
-yfinance>=0.2.55
+# IMPORTANTE: versión fija para evitar cambios de API en la columna multi-level-index
+yfinance==0.2.55
 requests==2.32.3
 
 # ─── Ciencia de datos ─────────────────────────────────────────────────────────
 pandas==2.2.2
 numpy==1.26.4
 scipy==1.13.1
+statsmodels==0.14.2      # usado por arch para diagnósticos GARCH
 
 # ─── Modelos de volatilidad ────────────────────────────────────────────────────
 arch==7.0.0
@@ -29,6 +31,8 @@ joblib==1.4.2
 # ─── HTTP client ──────────────────────────────────────────────────────────────
 httpx==0.28.1
 
-# ─── Testing ──────────────────────────────────────────────────────────────────
+# ─── Testing & linting ────────────────────────────────────────────────────────
 pytest==8.3.4
 pytest-cov==6.0.0
+httpx==0.28.1             # TestClient de FastAPI lo requiere
+ruff==0.8.6               # linter ultrarrápido (reemplaza flake8+isort+pyupgrade)

@@ -35,9 +35,9 @@ from datetime import datetime
 from typing import Callable, List, Optional
 
 import numpy as np
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from scipy import stats
 from sqlalchemy.orm import Session
 
@@ -59,6 +59,7 @@ from .dependencies import (
     get_technical_indicators,
     get_yield_curve_service,
 )
+from .db_models import PredictionLog, Portfolio
 from .models import (
     ActivoInfo,
     ActivosResponse,
@@ -69,10 +70,12 @@ from .models import (
     CAPMResponse,
     CurvaPunto,
     CurvaResponse,
+    EscenarioStress,
     EstadisticosRendimientos,
     EWMARequest,
     EWMAResponse,
     EWMAPunto,
+    FlujosBono,
     FronteraEficienteResponse,
     FronteraRequest,
     GARCHRequest,
@@ -158,13 +161,31 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_settings = get_settings()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],     # En producción restringir al dominio del frontend
+    # Lee los orígenes permitidos desde Settings/env (ALLOWED_ORIGINS=["https://..."])
+    # Por defecto es ["*"] para facilitar el desarrollo local.
+    allow_origins=_settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Manejador global de errores no capturados ─────────────────────────────────
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Captura errores inesperados y retorna 500 con mensaje controlado."""
+    logger.exception("Error no capturado en %s %s", request.method, request.url)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Error interno del servidor. Inténtalo de nuevo en unos momentos.",
+            "path": str(request.url),
+        },
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -178,9 +199,24 @@ async def root():
 
 
 @app.get("/health", tags=["Sistema"])
-async def health_check():
-    """Verifica que la API está activa y responde."""
-    return {"status": "ok", "timestamp": datetime.now().isoformat(), "version": "1.0.0"}
+async def health_check(db: Session = Depends(get_db)):
+    """Verifica que la API y la base de datos están activos."""
+    # Valida que SQLite responde — detecta disco lleno o archivo corrupto
+    try:
+        from sqlalchemy import text
+        db.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception as exc:
+        logger.error("Health check: BD no disponible: %s", exc)
+        db_status = "error"
+
+    status = "ok" if db_status == "ok" else "degraded"
+    return {
+        "status": status,
+        "database": db_status,
+        "timestamp": datetime.now().isoformat(),
+        "version": app.version,          # toma la versión definida en FastAPI()
+    }
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -626,7 +662,6 @@ async def post_bono_duracion(
         request.periods,
         request.frequency,
     )
-    from .models import FlujosBono
     return BonoResponse(
         precio=result["precio"],
         duracion_macaulay=result["duracion_macaulay"],
@@ -715,7 +750,6 @@ async def post_stress(
     result = await run_sync(
         stress_svc.compute, returns, available, request.weights, request.capital
     )
-    from .models import EscenarioStress
     return StressResponse(
         capital=result["capital"],
         var_base_pct=result["var_base_pct"],
@@ -757,7 +791,6 @@ async def post_predict(
     result = await run_sync(predictor.predict, request.ticker, log_ret)
 
     # Persistir en BD
-    from .db_models import PredictionLog
     log_entry = PredictionLog(
         ticker=request.ticker,
         features_json=json.dumps(result["features"]),
@@ -782,7 +815,6 @@ async def post_predict(
 @app.get("/portafolios", response_model=List[PortfolioResponse], tags=["Portafolio"])
 async def get_portafolios(db: Session = Depends(get_db)):
     """Lista todos los portafolios guardados en la base de datos."""
-    from .db_models import Portfolio
     portafolios = db.query(Portfolio).order_by(Portfolio.created_at.desc()).all()
     return [
         PortfolioResponse(
@@ -805,7 +837,6 @@ async def create_portafolio(
     db: Session = Depends(get_db),
 ):
     """Crea y persiste un nuevo portafolio en la base de datos SQLite."""
-    from .db_models import Portfolio
     p = Portfolio(
         nombre=request.nombre,
         descripcion=request.descripcion,
@@ -831,7 +862,6 @@ async def create_portafolio(
 @app.delete("/portafolios/{portafolio_id}", status_code=204, tags=["Portafolio"])
 async def delete_portafolio(portafolio_id: int, db: Session = Depends(get_db)):
     """Elimina un portafolio de la base de datos por su ID."""
-    from .db_models import Portfolio
     p = db.query(Portfolio).filter(Portfolio.id == portafolio_id).first()
     if p is None:
         raise HTTPException(status_code=404, detail=f"Portafolio {portafolio_id} no encontrado")

@@ -1,0 +1,9 @@
+# ─── Frontend RiskLab — Streamlit ──────────────────────────────────────────────
+# Versiones fijas para reproducibilidad.
+# Actualizar con: pip install --upgrade <paquete> y verificar antes de pinear.
+
+streamlit==1.41.1
+requests==2.32.3
+plotly==5.24.1
+pandas==2.2.2
+numpy==1.26.4

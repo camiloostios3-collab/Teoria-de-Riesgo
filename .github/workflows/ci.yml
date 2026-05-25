@@ -15,10 +15,10 @@ jobs:
       - name: Checkout código
         uses: actions/checkout@v4
 
-      - name: Configurar Python 3.11
+      - name: Configurar Python 3.11.9
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.11.9"     # versión exacta del proyecto
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
@@ -27,12 +27,13 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-cov httpx
+          pip install pytest pytest-cov httpx ruff
 
-      - name: Ejecutar pruebas pytest
+      - name: Lint con ruff (errores graves)
         working-directory: backend
-        run: |
-          pytest tests/ -v --tb=short --cov=app --cov-report=term-missing
+        # E9xx = errores de sintaxis; F = errores de importación/uso
+        # No bloqueamos en estilo (W, C) para no ser demasiado estrictos
+        run: ruff check app/ --select E9,F --output-format=github
 
       - name: Verificar que el módulo importa correctamente
         working-directory: backend
@@ -41,21 +42,39 @@ jobs:
           python -c "from app.services import EWMAService, BondService, OptionPricer, StressTester; print('✓ services importan OK')"
           python -c "from app.database import engine, Base; print('✓ database importa OK')"
 
+      - name: Ejecutar pruebas pytest con cobertura
+        working-directory: backend
+        run: |
+          pytest tests/ -v --tb=short \
+            --cov=app --cov-report=term-missing \
+            --cov-fail-under=60      # la cobertura mínima es 60 %
+
+      - name: Subir reporte de cobertura (artefacto)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: backend/.coverage
+
   build-docker:
-    name: Build Docker image
+    name: Build imagen Docker (backend)
     runs-on: ubuntu-latest
-    needs: test
+    needs: test          # solo si los tests pasan
 
     steps:
       - name: Checkout código
         uses: actions/checkout@v4
 
-      - name: Build imagen Docker
+      - name: Build imagen Docker (multi-stage)
         run: docker build -t risklab-api:ci --target runtime .
 
       - name: Verificar health del contenedor
         run: |
-          docker run -d --name risklab-test -p 8000:8000 risklab-api:ci
-          sleep 15
-          curl --fail http://localhost:8000/health || (docker logs risklab-test && exit 1)
+          docker run -d --name risklab-test \
+            -e DATABASE_URL="sqlite:////tmp/test.db" \
+            -p 8000:8000 risklab-api:ci
+          sleep 20
+          curl --fail --retry 3 --retry-delay 5 http://localhost:8000/health \
+            || (docker logs risklab-test && exit 1)
           docker stop risklab-test
+          docker rm risklab-test
